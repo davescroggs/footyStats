@@ -34,7 +34,7 @@ aflTables %>%
 
 # Remove unnecessary columns ----------------------------------------------
 
-## AFL Data
+## AFL Data ---- 
 
 colRemove <- c('status', 'compSeasonShortName', 'roundRoundNumber', 'photoUrl', 'playerJumperNumber', 'gamesPlayed', 'superGoals')
 
@@ -43,7 +43,7 @@ aflData_clean <- aflData %>%
   # Remove duplicate headings
   select(-matches("\\_\\d"),-any_of(colRemove))
 
-## AFL Tables
+## AFL Tables -----
 
 colKeep <- c('season', 'round', 'date', 'localStartTime', 'firstName', 'surname', 'id', 'playingFor', 'brownlowVotes', 'umpire1', 'umpire2', 'umpire3', 'umpire4')
 
@@ -57,26 +57,25 @@ aflTables_clean <-
 
 ## Clean up data types and create neccessary indentifiers
 
-### Date/times
+### Date/times ----
 
-#### aflData
+#### aflData ----
 
 aflData_clean %>% 
   mutate(startTime = ymd_hms(utcStartTime),
     season = factor(year(utcStartTime)), .keep = "used") %>% 
   select(-utcStartTime)
 
-#### aflTables
+#### aflTables ----
 
 aflTables_clean %>% 
-  select(season:localStartTime) %>%  
   mutate(localStartTime = if_else(localStartTime < 1000, localStartTime + 1200L,localStartTime),
          startTime = ymd_hm(paste(date, localStartTime)),
          season = factor(season)) %>% 
   select(-c(date,localStartTime))
 
 
-### Team names
+### Team names ----
 
 ## Team names are slightly different between tables
 ## Match the names and fuzzy join to get the corresponding name
@@ -96,24 +95,67 @@ fuzzyjoin::stringdist_full_join(afd_teams,aft_teams,
   select(teamAflData, teamAflTbls)
 
 # This method works for all except Greater Western Sydney so have updated manually below
+# Will use AFL data as the standard and change all others to match
 
 teamNameMap <- tibble::tribble(
-                        ~teamAflData,             ~teamAflTbls,
-                    "Adelaide Crows",               "Adelaide",
-                    "Brisbane Lions",         "Brisbane Lions",
-                           "Carlton",                "Carlton",
-                       "Collingwood",            "Collingwood",
-                          "Essendon",               "Essendon",
-                         "Fremantle",              "Fremantle",
-                      "Geelong Cats",                "Geelong",
-                   "Gold Coast Suns",             "Gold Coast",
-                        "GWS Giants", "Greater Western Sydney",
-                          "Hawthorn",               "Hawthorn",
-                         "Melbourne",              "Melbourne",
-                   "North Melbourne",        "North Melbourne",
-                     "Port Adelaide",          "Port Adelaide",
-                          "Richmond",               "Richmond",
-                          "St Kilda",               "St Kilda",
-                      "Sydney Swans",                 "Sydney",
-                 "West Coast Eagles",             "West Coast",
-                  "Western Bulldogs",       "Western Bulldogs")
+        ~teamAflTbls,        ~teamAflData,
+        "Adelaide",    "Adelaide Crows",
+        "Brisbane Lions",    "Brisbane Lions",
+        "Carlton",           "Carlton",
+        "Collingwood",       "Collingwood",
+        "Essendon",          "Essendon",
+        "Fremantle",         "Fremantle",
+        "Geelong",      "Geelong Cats",
+        "Gold Coast",   "Gold Coast Suns",
+        "Greater Western Sydney",        "GWS Giants",
+        "Hawthorn",          "Hawthorn",
+        "Melbourne",         "Melbourne",
+        "North Melbourne",   "North Melbourne",
+        "Port Adelaide",     "Port Adelaide",
+        "Richmond",          "Richmond",
+        "St Kilda",          "St Kilda",
+        "Sydney",      "Sydney Swans",
+        "West Coast", "West Coast Eagles",
+        "Western Bulldogs",  "Western Bulldogs"
+      ) %>% deframe()
+
+
+aflTables_clean %>% 
+  mutate(teamName = map_chr(playingFor,~teamNameMap[.x]))
+
+### Player name column headers ----
+
+# givenName for first name
+# surname for last name
+
+# AFL Data tables meet the standard
+
+aflTables %>%
+  rename(givenName = First.name)
+
+# Combine for data creation pipeline --------------------------------------
+
+## AFL Data ----
+
+aflData_clean <- 
+  aflData %>% 
+  set_names(aflDataCols) %>% 
+  # Remove duplicate headings
+  select(-matches("\\_\\d"),-any_of(colRemove)) %>% 
+  mutate(startTime = ymd_hms(utcStartTime),
+         season = factor(year(utcStartTime))) %>% 
+  select(-utcStartTime)
+
+## AFL Tables ----
+
+aflTables_clean <- 
+  aflTables %>% 
+  janitor::clean_names("small_camel") %>% 
+  # Remove duplicate headings - currently no duplicates
+  select(any_of(colKeep)) %>% 
+  mutate(localStartTime = if_else(localStartTime < 1000, localStartTime + 1200L,localStartTime),
+         startTime = ymd_hm(paste(date, localStartTime)),
+         season = factor(season),
+         teamName = map_chr(playingFor,~teamNameMap[.x])) %>% 
+  rename(givenName = First.name) %>% 
+  select(-c(date,localStartTime))
