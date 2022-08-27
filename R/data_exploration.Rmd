@@ -1,0 +1,77 @@
+---
+title: "Untitled"
+output: github_document
+---
+
+# Exploration of AFL and AFL Tables data
+
+```{r}
+library(tidyverse)
+library(fitzRoy)
+library(skimr)
+
+load("data/afl.RData")
+```
+
+# AFL data
+
+```{r}
+skim(aflData)
+# 93 columns
+```
+
+-   AFL data has 93 columns, 20 character, 8 logical (NA only?), 65 numeric.
+-   Last updated has 282 missing values. Are those player's records complete?
+-   None of the logical columns hold any useful information, are either NA or all FALSE.
+- Start time is read in as a character variable and UTC. I'm not sure what the reference for UTC is, might need to cross reference with AFL website to work out the times, some are showing at 3am. Might be important for matching player stats to game stats.
+
+```{r}
+set.seed(123)
+aflData %>% 
+  transmute(gameDateTime = lubridate::ymd_hms(utcStartTime)) %>% 
+    distinct(gameDateTime) %>% 
+    sample_n(5)
+```
+
+- Records of kickinsPlayon are only recorded for 2019 and 2020 years, similar to some other extended stats (extendedStats.centreBounceAttendances, extendedStats.kickinsPlayon)
+
+```{r}
+aflData %>% 
+  count(TF = is.na(extendedStats.kickinsPlayon),year = lubridate::as_date(utcStartTime) %>% lubridate::year())
+```
+
+- The data is mostly filled out in the AFL tables which is good, it won't need much/any work imputing missing data.
+
+## AFL Tables
+
+```{r}
+skim(aflTables)
+```
+
+  - 59 columns, 12 character, 1 date column, 46 numeric
+  - Umpire names are recorded. This might be important because they give the votes. There is missing data here.
+  - Umpire columns are the only ones with missing values.
+  - Start time is local start time and is provided separately as a date and time
+  - Goals and behinds for each quarter are recorded as separate columns, for home and away teams. It might be worth just straight-up combining the goals and points.
+  - It looks like there's a lot of overlap between AFL data and AFL tables, it will be worth deciding what is and isn't needed.
+
+
+## Column overlap
+
+A quick look at the overlap of column headings. There's some overlap, both in name and measure. It's messy though.
+  
+```{r}
+tibble(colnm = colnames(aflData),
+       tbl = "AFL") %>% 
+  fuzzyjoin::stringdist_full_join(
+    ignore_case = TRUE,
+    distance_col = "dist_n",
+    max_dist = 10,
+    tibble(colnm = colnames(aflTables),
+       tbl = "AFLT"),
+    by = "colnm") %>% 
+  group_by(colnm.x) %>% 
+  slice_min(dist_n)
+```
+  
+  
