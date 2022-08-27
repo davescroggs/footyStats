@@ -1,5 +1,6 @@
 library(tidyverse)
 library(fitzRoy)
+library(lubridate)
 
 load("data/afl.RData")
 
@@ -14,6 +15,8 @@ aflDataCols <- aflData %>%
   colnames() %>% 
   # Remove nesting headers
   str_remove_all("(player|extendedStats|clearances)\\.") %>% 
+  # Remove text after home/away team
+  str_remove_all("club.name$") %>% 
   janitor::make_clean_names("small_camel") 
 
 aflData %>% 
@@ -35,7 +38,7 @@ aflTables %>%
 
 colRemove <- c('status', 'compSeasonShortName', 'roundRoundNumber', 'photoUrl', 'playerJumperNumber', 'gamesPlayed', 'superGoals')
 
-aflData %>% 
+aflData_clean <- aflData %>% 
   set_names(aflDataCols) %>% 
   # Remove duplicate headings
   select(-matches("\\_\\d"),-any_of(colRemove))
@@ -44,9 +47,73 @@ aflData %>%
 
 colKeep <- c('season', 'round', 'date', 'localStartTime', 'firstName', 'surname', 'id', 'playingFor', 'brownlowVotes', 'umpire1', 'umpire2', 'umpire3', 'umpire4')
 
-aflTables %>% 
+aflTables_clean <- 
+  aflTables %>% 
   janitor::clean_names("small_camel") %>% 
   # Remove duplicate headings - currently no duplicates
   select(any_of(colKeep))
 
-# Pick some standards
+# Standardise common columns ----------------------------------------------
+
+## Clean up data types and create neccessary indentifiers
+
+### Date/times
+
+#### aflData
+
+aflData_clean %>% 
+  mutate(startTime = ymd_hms(utcStartTime),
+    season = factor(year(utcStartTime)), .keep = "used") %>% 
+  select(-utcStartTime)
+
+#### aflTables
+
+aflTables_clean %>% 
+  select(season:localStartTime) %>%  
+  mutate(localStartTime = if_else(localStartTime < 1000, localStartTime + 1200L,localStartTime),
+         startTime = ymd_hm(paste(date, localStartTime)),
+         season = factor(season)) %>% 
+  select(-c(date,localStartTime))
+
+
+### Team names
+
+## Team names are slightly different between tables
+## Match the names and fuzzy join to get the corresponding name
+
+afd_teams <- aflData_clean %>% summarise(teamAflData = unique(awayTeam),
+                                         tbl = 1)
+
+aft_teams <- aflTables_clean %>% summarise(teamAflTbls = unique(playingFor),
+                                           tbl = 1)
+
+fuzzyjoin::stringdist_full_join(afd_teams,aft_teams,
+                                by = c("teamAflData" = "teamAflTbls"),
+                                max_dist = 10,distance_col = "n") %>% 
+  group_by(teamAflData) %>% 
+  slice_min(n) %>% 
+  ungroup() %>% 
+  select(teamAflData, teamAflTbls)
+
+# This method works for all except Greater Western Sydney so have updated manually below
+
+teamNameMap <- tibble::tribble(
+                        ~teamAflData,             ~teamAflTbls,
+                    "Adelaide Crows",               "Adelaide",
+                    "Brisbane Lions",         "Brisbane Lions",
+                           "Carlton",                "Carlton",
+                       "Collingwood",            "Collingwood",
+                          "Essendon",               "Essendon",
+                         "Fremantle",              "Fremantle",
+                      "Geelong Cats",                "Geelong",
+                   "Gold Coast Suns",             "Gold Coast",
+                        "GWS Giants", "Greater Western Sydney",
+                          "Hawthorn",               "Hawthorn",
+                         "Melbourne",              "Melbourne",
+                   "North Melbourne",        "North Melbourne",
+                     "Port Adelaide",          "Port Adelaide",
+                          "Richmond",               "Richmond",
+                          "St Kilda",               "St Kilda",
+                      "Sydney Swans",                 "Sydney",
+                 "West Coast Eagles",             "West Coast",
+                  "Western Bulldogs",       "Western Bulldogs")
