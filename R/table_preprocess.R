@@ -195,6 +195,7 @@ aflData_clean %>%
               mutate(typ = "AFLT"),
             by = "round") %>% print(n = Inf)
 
+
 # Combine for data creation pipeline --------------------------------------
 
 ## AFL Data ----
@@ -226,7 +227,7 @@ aflTables_final <-
                            round == "SF" ~ "Semi Finals",
                            # I don't like this, it's losing information
                            round %in% c("EF","QF") ~ "Finals Week 1",
-                           TRUE ~ round),
-         round = factor(round,levels = roundsVector,ordered = TRUE)) %>% 
+                           TRUE ~ round) %>% 
+           factor(levels = roundsVector,ordered = TRUE)) %>% 
   rename(givenName = firstName) %>% 
   select(-c(date,localStartTime))
