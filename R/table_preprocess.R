@@ -138,18 +138,24 @@ aflTables_clean %>%
 aflTables %>%
   rename(givenName = First.name)
 
+
+## Player IDs --------------------------------------------------------------
+
+### AFL Data ----
+
+# Column name is playerId - this should be the standard name
+aflData_clean %>% 
+  select(playerId)
+
+### AFL Tables ----
+
+aflTables_clean %>% 
+  select(playerId = id)
+
 ### Round indicators ----
 
 #### AFL Data ----
 
-aflData_clean %>% 
-  count(roundName) %>% 
-  filter(!str_detect(roundName,"Round"))
-
-aflData_clean %>% 
-  filter(roundName == "Grand Final", roundNumber == 22)
-
-# In the 2020 the GF was in round 22
 
 aflTables_clean %>% 
   filter(season == "2020") %>% count(round) %>%
@@ -229,5 +235,6 @@ aflTables_final <-
                            round %in% c("EF","QF") ~ "Finals Week 1",
                            TRUE ~ round) %>% 
            factor(levels = roundsVector,ordered = TRUE)) %>% 
-  rename(givenName = firstName) %>% 
+  rename(givenName = firstName,
+         playerId = id) %>% 
   select(-c(date,localStartTime))
