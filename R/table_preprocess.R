@@ -160,7 +160,6 @@ aflTables_clean %>%
 aflTables_clean %>% 
   filter(season == "2020") %>% count(round) %>%
   filter(!str_detect(round,"\\d"))
-  arrange(desc(round)) %>% print(n = Inf)
   
 ## Make the rounds and ordered character variable
 
@@ -215,7 +214,8 @@ aflData_final <-
          season = factor(year(utcStartTime)),
          round = str_remove(roundName,"Round ") %>% 
            factor(levels = roundsVector,ordered = TRUE)) %>% 
-  select(-c(utcStartTime,roundName))
+  select(-c(utcStartTime,roundName)) %>% 
+  filter(!is.na(playerId))
 
 ## AFL Tables ----
 
