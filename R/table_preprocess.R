@@ -238,3 +238,51 @@ aflTables_final <-
   rename(givenName = firstName,
          playerId = id) %>% 
   select(-c(date,localStartTime))
+
+
+
+# Join tables (#7) -------------------------------------------------------------
+
+## Create join id ----
+
+join_ids <- 
+  aflData_final %>% 
+  mutate(full_name = clean_player_name(givenName,surname)) %>% 
+  distinct(full_name,teamName,season,playerId) %>% 
+  nest(names = c(full_name,playerId)) %>% 
+  inner_join(
+    aflTables_final %>% 
+      mutate(full_name = clean_player_name(givenName,surname)) %>% 
+      distinct(full_name,teamName,season,playerId) %>% 
+      nest(names = c(full_name,playerId)),
+    by = c("teamName","season"),
+    suffix = c(".afld",".aflt")) %>% 
+  transmute(teamName,season,
+            matched_names = map2(names.afld, names.aflt,function(x,y){
+              
+              x <- unnest(x,cols = c(everything()))
+              y <- unnest(y,cols = c(everything()))
+              
+              fuzzyjoin::stringdist_full_join(x,y,by = "full_name",
+                                              max_dist = 6,
+                                              distance_col = "n") %>% 
+                group_by(playerId.x) %>%
+                slice_min(n) %>%
+                ungroup()
+            })) %>% 
+  unnest(matched_names) %>% 
+  select(teamName,season,
+         playerId.alfd = playerId.x,
+         playerId.alft = playerId.y,
+         full_name = full_name.x)
+
+join_aflTables <- function(df){
+  df %>% 
+    left_join(join_ids,
+              by = c("playerId" = "playerId.alfd","teamName", "season")) %>%
+    left_join(aflTables_final %>% 
+                select(-c(givenName, surname, startTime)),
+              by = c("playerId.alft" = "playerId","teamName", "season","round"))}
+
+playerData <- aflData_final %>% 
+  join_aflTables()
