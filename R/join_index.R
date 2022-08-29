@@ -44,8 +44,49 @@ join_ids <-
       fuzzyjoin::stringdist_full_join(x,y,by = "full_name",
                                       max_dist = 6,
                                        distance_col = "n") %>% 
-        group_by(full_name.x) %>%
+        group_by(playerId.x) %>%
         slice_min(n) %>%
         ungroup()
     })) %>% 
-    unnest(matched_names)
+    unnest(matched_names) %>% 
+  select(teamName,season,
+         playerId.alfd = playerId.x,
+         playerId.alft = playerId.y,
+         full_name = full_name.x)
+  
+
+# Look at uniqueness of the joined IDs
+# All IDs are unique and match one-to-one
+join_ids %>% 
+  summarise(distinct_AFL = n_distinct(playerId.alfd),
+    distinct_AFLT = n_distinct(playerId.alft),
+    distinct_both = n_distinct(playerId.alfd,playerId.alft),
+    distinct_original = n_distinct(aflData_final$playerId))
+
+join_ids %>% 
+  filter(n > 0) %>% 
+  arrange(-n) %>% View
+
+# Ian or Bobby Hill?
+
+# Name changed between 2019 - 2020 but still the same player
+
+# Some names are spelt differently in the same season
+
+join_ids %>% 
+  group_by(teamName, season,playerId.alfd) %>% 
+  summarise(n = n_distinct(full_name.x)) %>% 
+  arrange(-n)
+
+# Create a join function --------------------------------------------------
+
+  join_aflTables <- function(df){
+    df %>% 
+  left_join(join_ids,
+            by = c("playerId" = "playerId.alfd","teamName", "season")) %>%
+  left_join(aflTables_final %>% 
+              select(-c(givenName, surname, startTime)),
+            by = c("playerId.alft" = "playerId","teamName", "season","round"))}
+
+aflData_final %>% 
+  join_aflTables()
