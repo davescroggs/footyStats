@@ -74,9 +74,14 @@ join_ids %>%
 # Some names are spelt differently in the same season
 
 join_ids %>% 
-  group_by(teamName, season,playerId.alfd) %>% 
-  summarise(n = n_distinct(full_name.x)) %>% 
+  group_by(teamName, season,full_name) %>% 
+  summarise(n = n_distinct(playerId.alfd)) %>% 
   arrange(-n)
+
+aflData_final %>% 
+  filter(playerId == "CD_I998256") %>% 
+  select(season, round,teamName,givenName,surname,playerId) %>% 
+  knitr::kable(format = "markdown")
 
 # Create a join function --------------------------------------------------
 
@@ -90,3 +95,15 @@ join_ids %>%
 
 aflData_final %>% 
   join_aflTables()
+
+
+# Multiple names/spelling per ID ------------------------------------------
+
+aflData_final %>% 
+  group_by(playerId) %>% 
+  summarise(n = n_distinct(givenName,surname),
+            surnames = paste(unique(surname),collapse = ", "),
+            givenName = paste(unique(givenName),collapse = ", ")) %>% 
+  filter(n > 1) %>% 
+  arrange(-n) %>% 
+  knitr::kable(format = "markdown")
