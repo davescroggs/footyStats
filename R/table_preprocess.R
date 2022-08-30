@@ -36,7 +36,7 @@ aflTables %>%
 
 ## AFL Data ---- 
 
-colRemove <- c('status', 'compSeasonShortName','roundRoundNumber', 'photoUrl', 'playerJumperNumber', 'gamesPlayed', 'superGoals')
+colRemove <- c('status', 'compSeasonShortName','roundRoundNumber', 'photoUrl', 'playerJumperNumber', 'gamesPlayed', 'superGoals','lastUpdated','ranking')
 
 aflData_clean <- 
   aflData %>% 
@@ -273,16 +273,24 @@ join_ids <-
   unnest(matched_names) %>% 
   select(teamName,season,
          playerId.alfd = playerId.x,
-         playerId.alft = playerId.y,
-         full_name = full_name.x)
+         playerId.alft = playerId.y)
 
 join_aflTables <- function(df){
   df %>% 
     left_join(join_ids,
               by = c("playerId" = "playerId.alfd","teamName", "season")) %>%
     left_join(aflTables_final %>% 
-                select(-c(givenName, surname, startTime)),
+                select(-c(givenName, surname, startTime,playingFor)),
               by = c("playerId.alft" = "playerId","teamName", "season","round"))}
 
 playerData <- aflData_final %>% 
-  join_aflTables()
+  join_aflTables() %>% 
+  # Order - player info, game info, metrics
+  # Player info
+  select(season, round, startTime, playerId, playerId.alft, givenName, surname, 
+         # Game info
+         teamName,homeTeam,awayTeam,providerId,venueName,
+         # metrics
+         brownlowVotes,jumperNumber, position,everything(),contains("umpire"))
+
+save(playerData, file = here("data/processed_data.RData"))
