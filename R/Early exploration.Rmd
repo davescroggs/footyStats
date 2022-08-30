@@ -1,0 +1,65 @@
+---
+title: "Early exploration"
+output: github_document
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(scales)
+library(lubridate)
+library(here)
+
+load(file = here("data/processed_data.RData"))
+
+playerData <- playerData %>% 
+  filter(round <= 23)
+```
+
+## Data overview
+
+```{r}
+skim_view <- playerData %>% 
+  skimr::skim()
+```
+
+## Discrete variables (#13)
+
+```{r}
+summarise_brownlow_discrete <- function(df,.simplify = TRUE){
+  df %>% 
+    {if(.simplify) mutate(.,brownlowVotes = if_else(brownlowVotes > 0,"Vote","No_vote")) else .} %>% 
+    group_by(brownlowVotes,.add = TRUE) %>% 
+    summarise(n = n()) %>% 
+    mutate(pct = n/sum(n))
+}
+
+playerData %>% 
+  summarise_brownlow_discrete()
+```
+
+-   homeTeam
+-   awayTeam
+-   position
+-   teamStatus
+-   teamName
+-   umpire1
+-   umpire2
+-   umpire3
+-   umpire4
+
+```{r}
+playerData %>% 
+  group_by(teamName) %>% 
+  summarise_brownlow_discrete() %>% 
+  ungroup() %>% 
+  pivot_wider(names_from = brownlowVotes,values_from = c(n,pct)) %>% 
+  arrange(-pct_Vote)
+```
+
+
+
+## Continuous variables (#14)
