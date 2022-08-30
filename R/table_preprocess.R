@@ -243,6 +243,8 @@ aflTables_final <-
 
 # Join tables (#7) -------------------------------------------------------------
 
+clean_player_name <- function(first,last) paste(first,last,sep = "_") %>% str_replace_all("\\s+","\\_") %>% tolower %>% str_remove_all("\\W")
+
 ## Create join id ----
 
 join_ids <- 
