@@ -293,6 +293,8 @@ playerData <- aflData_final %>%
          # Game info
          teamName,homeTeam,awayTeam,providerId,venueName,
          # metrics
-         brownlowVotes,jumperNumber, position,everything(),contains("umpire"))
+         brownlowVotes,jumperNumber, position,everything(),contains("umpire")) %>% 
+  # One record doesn't have a unique fuzzy join.
+  filter(!is.na(brownlowVotes))
 
 save(playerData, file = here("data/processed_data.RData"))
