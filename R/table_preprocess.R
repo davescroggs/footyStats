@@ -267,7 +267,7 @@ join_ids <-
               
               fuzzyjoin::stringdist_full_join(x,y,by = "full_name",
                                               # Largest distance in 10 years = 8
-                                              max_dist = 8,
+                                              max_dist = 6,
                                               distance_col = "n") %>% 
                 group_by(playerId.x) %>%
                 slice_min(n) %>%
