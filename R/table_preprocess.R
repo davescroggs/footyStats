@@ -71,8 +71,7 @@ aflData_clean %>%
 
 aflTables_clean %>% 
   mutate(localStartTime = if_else(localStartTime < 1000, localStartTime + 1200L,localStartTime),
-         startTime = ymd_hm(paste(date, localStartTime)),
-         season = factor(season)) %>% 
+         startTime = ymd_hm(paste(date, localStartTime))) %>% 
   select(-c(date,localStartTime))
 
 
@@ -211,7 +210,7 @@ aflData_final <-
   # Remove duplicate headings
   select(-matches("\\_\\d"),-any_of(colRemove)) %>% 
   mutate(startTime = ymd_hms(utcStartTime),
-         season = factor(year(utcStartTime)),
+         season = year(utcStartTime),
          round = str_remove(roundName,"Round ") %>% 
            factor(levels = roundsVector,ordered = TRUE)) %>% 
   select(-c(utcStartTime,roundName)) %>% 
@@ -226,7 +225,6 @@ aflTables_final <-
   select(any_of(colKeep)) %>% 
   mutate(localStartTime = if_else(localStartTime < 1000, localStartTime + 1200L,localStartTime),
          startTime = ymd_hm(paste(date, localStartTime)),
-         season = factor(season),
          teamName = map_chr(playingFor,~teamNameMap[.x]),
          round = case_when(round == "GF" ~ "Grand Final",
                            round == "PF" ~ "Preliminary Finals",
