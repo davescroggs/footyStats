@@ -63,3 +63,55 @@ playerData %>%
 
 
 ## Continuous variables (#14)
+
+
+```{r}
+skim_view %>% 
+  filter(skim_type == "numeric") %>% 
+  pull(skim_variable)
+
+```
+
+```{r}
+playerData %>% 
+  count(brownlowVotes,inside50S) %>% 
+  ggplot(aes(inside50S,y = n)) +
+  geom_col() +
+  facet_wrap(~brownlowVotes,scales = "free_y",ncol = 1)
+```
+
+```{r}
+playerData %>% 
+  count(brownlowVotes,contestedMarks) %>% 
+  ggplot(aes(contestedMarks,y = n)) +
+  geom_col() +
+  facet_wrap(~brownlowVotes,scales = "free_y",ncol = 1)
+```
+
+```{r}
+playerData %>% 
+  count(brownlowVotes,disposals) %>% 
+  ggplot(aes(disposals,y = n)) +
+  geom_col() +
+  facet_wrap(~brownlowVotes,scales = "free_y",ncol = 1)
+```
+```{r}
+playerData %>% 
+  count(brownlowVotes,tackles) %>% 
+  ggplot(aes(tackles,y = n)) +
+  geom_col() +
+  facet_wrap(~brownlowVotes,scales = "free_y",ncol = 1)
+```
+
+```{r}
+playerData %>% 
+  filter(season == "2021",round == "5",awayTeam == "Richmond",timeOnGroundPercentage > 50) %>% 
+  transmute(full_name = paste(givenName,surname),
+            full_name = fct_reorder(full_name,brownlowVotes),
+            teamName,brownlowVotes,disposals,goals,behinds,inside50S) %>% 
+  pivot_longer(cols = c(disposals,goals,behinds,inside50S)) %>% 
+  ggplot(aes(value,y = full_name, col = factor(brownlowVotes))) +
+  geom_point() +
+  facet_grid(.~name,scales = "free_x")
+```
+
