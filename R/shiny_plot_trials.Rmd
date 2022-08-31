@@ -1,0 +1,69 @@
+---
+title: "Shiny dashboard pre-build exploration"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(scales)
+library(lubridate)
+library(here)
+
+load(file = here("data/processed_data.RData"))
+
+playerData <- playerData %>% 
+  filter(season < 2022, round <= 23)
+```
+
+# Explore options for a single game dashboard
+
+## Which stats are the most differentiating?
+
+
+
+```{r}
+playerData %>% 
+  mutate(brownlowVotes = if_else(brownlowVotes > 0,"Vote","No_vote")) %>% 
+  select(season, brownlowVotes, timeOnGroundPercentage:spoils,
+         -c(goalEfficiency, interchangeCounts, shotEfficiency)) %>% 
+  pivot_longer(cols = -c(season, brownlowVotes), names_to = "metric") %>% 
+  group_by(season,brownlowVotes,metric) %>% 
+  summarise(mean = mean(value,na.rm = T),
+            .groups = "drop_last") %>% 
+  pivot_wider(names_from = brownlowVotes,values_from = mean) %>% 
+  mutate(diff = Vote - No_vote,
+         pct_diff = log2(Vote/No_vote)) %>% 
+  arrange(-abs(pct_diff)) %>% 
+  ggplot(aes(x = pct_diff,y = fct_reorder(metric,pct_diff,mean), col = factor(season))) +
+  geom_point() + 
+  scale_colour_viridis_d() +
+  labs(title = "Votes or no votes - who gets more?",
+       subtitle = "Difference in mean stat value between vote and no vote cohort \n between 2013-2021",
+       caption = "Data: jimmyday12/fizRoy",
+       colour = "Season",
+       x = "Stat ratio (log2(Vote scored/no votes))",
+       y = "Player statistic") +
+  theme(plot.title = element_text(hjust = 0.5),
+    plot.subtitle = element_text(hjust = 0.5),
+    plot.caption = element_text(hjust = 1))
+```
+
+## How many players to visualise? If we look at the metrics with the biggest difference, how many players do we need to compare? Top 5 for each statistic?
+
+
+## How many ways to summarise the data - raw, % of team/game total, percentile rank?
+
+```{r}
+playerData %>% 
+  # Pick a single game - make dynamic in shiny
+  filter(season == "2021",round == "5",awayTeam == "Richmond",timeOnGroundPercentage > 50) %>% 
+  transmute(full_name = paste(givenName,surname),
+            full_name = fct_reorder(full_name,brownlowVotes),
+            teamName,brownlowVotes,disposals,goals,behinds,inside50S) %>% 
+  pivot_longer(cols = c(disposals,goals,behinds,inside50S)) %>% 
+  ggplot(aes(value,y = full_name, col = factor(brownlowVotes))) +
+  geom_point() +
+  facet_grid(.~name,scales = "free_x")
+```
