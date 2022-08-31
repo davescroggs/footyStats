@@ -64,6 +64,71 @@ playerData %>%
 
 ## Continuous variables (#14)
 
+### Brownlow medal
+
+How many players during the year actually get votes? 
+
+```{r}
+playerData %>% 
+  filter(brownlowVotes > 0) %>% 
+  count(season,givenName,surname,playerId,wt = brownlowVotes,name = "season_votes") %>% 
+  arrange(-season_votes) %>% 
+  count(season,name = "total_unique_planyers")
+
+playerData %>% 
+  filter(brownlowVotes > 0) %>% 
+  group_by(season) %>% 
+  summarise(ndist = n_distinct(playerId))
+
+playerData %>% 
+  filter(season == "2021") %>% 
+  count(givenName,surname,playerId,wt = brownlowVotes) %>% 
+  filter(n == 0) 
+```
+About 200 players a season get at least 1 vote, out of about 660. That's more spread out than I would have expected, I would have thought it was more concentrated than that.
+
+```{r}
+playerData %>% 
+  filter(season != "2022") %>% 
+  group_by(season,teamName, got_votes = if_else(brownlowVotes > 0,"Vote","No_vote")) %>% 
+  summarise(n = n(),.groups = "drop_last") %>% 
+  mutate(pct = n/sum(n),
+         order = min(pct)) %>% 
+  ungroup() %>% 
+  mutate(shortName = case_when(
+    teamName == "St Kilda" ~ "St Kilda",
+    teamName == "North Melbourne" ~ "Kangaroos",
+    TRUE ~ str_extract(teamName,"\\w+$")),
+    shortName = tidytext::reorder_within(shortName,pct,season,fun = min)) %>% 
+  ggplot(aes(x = pct, y = shortName, fill = got_votes)) +
+  geom_col() + 
+  geom_text(aes(label = percent(pct,accuracy = 1)), position = position_stack(vjust = 0.5), col = "white",size = 3) +
+  tidytext::scale_y_reordered() +
+  scale_x_continuous(labels = percent) +
+  facet_wrap(~season,scale = "free_y")
+```
+```{r}
+playerData %>% 
+  filter(season != "2022") %>% 
+  mutate(got_votes = if_else(brownlowVotes > 0,"Vote","No_vote")) %>% 
+  group_by(season,teamName) %>% 
+  summarise(pct_votes = sum(got_votes)/n(),.groups = "drop_last") %>% 
+  ggplot(aes(x = pct_votes,y = fct_reorder(teamName,pct_votes), col = season)) + 
+  geom_point() +
+  scale_x_continuous(labels = percent)
+```
+```{r}
+playerData %>% 
+  filter(season != "2022") %>% 
+  mutate(got_votes = if_else(brownlowVotes > 0,"Vote","No_vote")) %>% 
+  group_by(season,teamName) %>% 
+  summarise(pct_votes = sum(got_votes)/n(),.groups = "drop_last") %>% 
+  ggplot(aes(x = pct_votes,y = fct_reorder(teamName,pct_votes), col = season)) + 
+  geom_point() +
+  scale_x_continuous(labels = percent)
+```
+
+### Player game stats
 
 ```{r}
 skim_view %>% 
@@ -95,6 +160,7 @@ playerData %>%
   geom_col() +
   facet_wrap(~brownlowVotes,scales = "free_y",ncol = 1)
 ```
+
 ```{r}
 playerData %>% 
   count(brownlowVotes,tackles) %>% 
