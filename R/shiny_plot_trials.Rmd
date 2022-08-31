@@ -7,6 +7,7 @@ output: github_document
 
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
+library(tidytext)
 library(scales)
 library(lubridate)
 library(here)
@@ -20,8 +21,6 @@ playerData <- playerData %>%
 # Explore options for a single game dashboard
 
 ## Which stats are the most differentiating?
-
-
 
 ```{r}
 playerData %>% 
@@ -49,9 +48,30 @@ playerData %>%
     plot.subtitle = element_text(hjust = 0.5),
     plot.caption = element_text(hjust = 1))
 ```
+It seems the clearance stats, and those stats that seem to be associated with gaining possession, or controlled possession are highly valued.
 
 ## How many players to visualise? If we look at the metrics with the biggest difference, how many players do we need to compare? Top 5 for each statistic?
 
+ - Need to find a good colour palete
+ - Find a good way of distinguishing between teams
+
+```{r}
+playerData %>% 
+  filter(season == 2021,round == "5",homeTeam == "St Kilda") %>% 
+  transmute(season, round, full_name = paste(givenName,surname), teamName, brownlowVotes,
+            centreClearances, goals, totalClearances, stoppageClearances, 
+         shotsAtGoal, marksInside50, goalAssists, ratingPoints, inside50S, goalAccuracy) %>% 
+  pivot_longer(cols = -c(season, round, full_name, teamName,brownlowVotes), names_to = "stat", values_to = "value") %>% 
+  group_by(stat) %>% 
+  slice_max(value,n = 8, with_ties = FALSE) %>% 
+  mutate(full_name = reorder_within(full_name,value,stat)) %>% 
+  ggplot(aes(x = value, y = full_name, col = factor(brownlowVotes))) +
+  geom_point(aes(shape = teamName)) +
+  scale_y_reordered() +
+  scale_colour_brewer(palette = "Reds",type = "div") +
+  facet_wrap(~stat, scales = "free") +
+  theme_bw()
+```
 
 ## How many ways to summarise the data - raw, % of team/game total, percentile rank?
 
