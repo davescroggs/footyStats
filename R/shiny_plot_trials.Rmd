@@ -65,25 +65,34 @@ playerData %>%
   group_by(stat) %>% 
   slice_max(value,n = 8, with_ties = FALSE) %>% 
   mutate(full_name = reorder_within(full_name,value,stat)) %>% 
-  ggplot(aes(x = value, y = full_name, col = factor(brownlowVotes))) +
-  geom_point(aes(shape = teamName)) +
+  ggplot(aes(x = value, y = full_name, fill = factor(brownlowVotes))) +
+  geom_point(aes(shape = teamName), size = 3,col = "black") +
   scale_y_reordered() +
-  scale_colour_brewer(palette = "Reds",type = "div") +
+  #scale_fill_manual(values = c("0" = "grey80", "1" = "#EDF8B1", "2" = "#7FCDBB", "3" = "#2C7FB8")) +
+  scale_fill_manual(values = c("grey80","#FC9272", "#FB6A4A", "#A50F15")) +
+  scale_shape_manual(values = c(22,24)) +
+  labs(title = "Title",
+       subtitle = "Sub",
+       x = "",
+       y = "Player name",
+       shape = "Team",
+       fill = "Votes") +
   facet_wrap(~stat, scales = "free") +
-  theme_bw()
+  theme_bw() +
+  guides(fill = guide_legend(override.aes = list(shape = c(21))))
 ```
 
 ## How many ways to summarise the data - raw, % of team/game total, percentile rank?
 
 ```{r}
 playerData %>% 
-  # Pick a single game - make dynamic in shiny
-  filter(season == "2021",round == "5",awayTeam == "Richmond",timeOnGroundPercentage > 50) %>% 
-  transmute(full_name = paste(givenName,surname),
-            full_name = fct_reorder(full_name,brownlowVotes),
-            teamName,brownlowVotes,disposals,goals,behinds,inside50S) %>% 
-  pivot_longer(cols = c(disposals,goals,behinds,inside50S)) %>% 
-  ggplot(aes(value,y = full_name, col = factor(brownlowVotes))) +
-  geom_point() +
-  facet_grid(.~name,scales = "free_x")
+  mutate(brownlowVotes = if_else(brownlowVotes > 0,"Vote","No_vote")) %>% 
+  select(season, brownlowVotes, 
+         centreClearances, goals, totalClearances, stoppageClearances, 
+         shotsAtGoal, marksInside50, goalAssists, inside50S, goalAccuracy) %>% 
+  pivot_longer(cols = -c(season, brownlowVotes), names_to = "metric") %>% 
+  group_by(brownlowVotes, metric) %>% 
+  mutate(pct_rank = percent_rank(value)) %>% 
+  ggplot(aes(x = pct_rank, y = metric,fill  = brownlowVotes)) +
+  ggridges::geom_density_ridges(stat = "binline", alpha = 0.5, scale = 0.9)
 ```
