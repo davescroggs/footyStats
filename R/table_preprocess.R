@@ -212,7 +212,8 @@ aflData_final <-
   mutate(startTime = ymd_hms(utcStartTime),
          season = year(utcStartTime),
          round = str_remove(roundName,"Round ") %>% 
-           factor(levels = roundsVector,ordered = TRUE)) %>% 
+           factor(levels = roundsVector,ordered = TRUE),
+         game = str_sub(providerId,-2) %>% parse_integer()) %>% 
   select(-c(utcStartTime,roundName)) %>% 
   filter(!is.na(playerId))
 
