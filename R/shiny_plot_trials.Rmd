@@ -96,3 +96,26 @@ playerData %>%
   ggplot(aes(x = pct_rank, y = metric,fill  = brownlowVotes)) +
   ggridges::geom_density_ridges(stat = "binline", alpha = 0.5, scale = 0.9)
 ```
+
+
+## Show each vote getters best stats in a given game
+
+```{r}
+playerData %>% 
+  transmute(season, round, full_name = paste(givenName, surname),
+            brownlowVotes, 
+         centreClearances, goals, totalClearances, stoppageClearances, 
+         shotsAtGoal, marksInside50, goalAssists, inside50S, goalAccuracy) %>% 
+  pivot_longer(cols = -c(season, round, full_name, brownlowVotes), names_to = "metric") %>% 
+  group_by(season, metric) %>% 
+  mutate(pct_rank = percent_rank(value)) %>% 
+  filter(brownlowVotes > 0) %>% 
+  group_by(full_name, round, season) %>% 
+  slice_max(pct_rank,n = 5) %>% 
+  filter(str_detect(full_name,"Wines"), season == 2021) %>% 
+  ggplot(aes(x = round,y = metric, fill = pct_rank, label = value)) +
+  geom_tile() +
+  geom_tile(aes(col = factor(brownlowVotes)),size = 1.5, fill = NA) +
+  geom_text(col = "white")
+```
+
