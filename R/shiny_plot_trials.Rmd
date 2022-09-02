@@ -109,13 +109,14 @@ playerData %>%
   pivot_longer(cols = -c(season, round, full_name, brownlowVotes), names_to = "metric") %>% 
   group_by(season, metric) %>% 
   mutate(pct_rank = percent_rank(value)) %>% 
-  filter(brownlowVotes > 0) %>% 
+  filter(str_detect(full_name,"Wines"), season == 2021) %>% 
   group_by(full_name, round, season) %>% 
   slice_max(pct_rank,n = 5) %>% 
-  filter(str_detect(full_name,"Wines"), season == 2021) %>% 
-  ggplot(aes(x = round,y = metric, fill = pct_rank, label = value)) +
+  ggplot(aes(x = round,y = metric, label = value)) +
   geom_tile() +
-  geom_tile(aes(col = factor(brownlowVotes)),size = 1.5, fill = NA) +
-  geom_text(col = "white")
+  geom_tile(aes(col = factor(brownlowVotes), width=0.9, height=0.9), size=2, fill = NA) +
+  geom_text(col = "white") +
+   scale_colour_manual(values = c(NA,"#FC9272", "#FB6A4A", "#A50F15"))
+  scale_fill_distiller(palette = "Spectral")
 ```
 
