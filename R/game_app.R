@@ -65,7 +65,7 @@ server <- function(input, output, session) {
       slice_max(value,n = 8, with_ties = FALSE) %>% 
       mutate(full_name = reorder_within(full_name,value,stat)) %>% 
       ggplot(aes(x = value, y = full_name, fill = factor(brownlowVotes))) +
-      geom_point(aes(shape = teamName), size = 3,col = "black") +
+      geom_point(aes(shape = teamName), size = 4,col = "black") +
       scale_y_reordered() +
       #scale_fill_manual(values = c("0" = "grey80", "1" = "#EDF8B1", "2" = "#7FCDBB", "3" = "#2C7FB8")) +
       scale_fill_manual(values = c("grey80","#FC9272", "#FB6A4A", "#A50F15")) +
@@ -78,6 +78,10 @@ server <- function(input, output, session) {
            fill = "Votes") +
       facet_wrap(~stat, scales = "free") +
       theme_bw() +
+      theme(plot.title = element_text(hjust = 0.5),
+            plot.subtitle = element_text(hjust = 0.5),
+            axis.text = element_text(size = 15),
+            strip.text = element_text(size = 15)) +
       expand_limits(x = 0) +
       guides(fill = guide_legend(override.aes = list(shape = c(21))))
   })
