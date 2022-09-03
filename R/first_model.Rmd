@@ -1,0 +1,70 @@
+---
+title: "First model"
+output: github_document
+---
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(here)
+library(tidymodels)
+library(glmnet)
+
+doParallel::registerDoParallel(core = 4)
+
+load(file = here("data/processed_data.RData"))
+
+playerData <- playerData %>% 
+  filter(season < 2022, round <= 23) %>% 
+  mutate(brownlowVotes = if_else(brownlowVotes > 0,"Vote","No_vote"),
+         full_name = paste(givenName,surname))
+```
+
+# First
+
+This is a first model to get a feel for how a predictive model might produce results. Early observations show that a lot of the stats that are often discussed along with Brownlow votes (clearances, goals etc.) tend to be correlated with Brownlow votes. For a first, simple model, Lasso regression will be used to predict the probability of any vote. Votes will be allocated to the players in a given match that have the 3 highest estimated probability of gaining votes in that round, with the highest probability getting 3 votes, second most getting 2 etc. 
+
+## Data splitting
+
+```{r}
+brownlowSplit <- initial_split(playerData,prop = 0.75,strata = brownlowVotes)
+
+brownlowTest <- testing(brownlowSplit)
+brownlowTrain <- training(brownlowSplit)
+
+brownlowCV <- vfold_cv(brownlowTrain,v = 5)
+
+```
+
+## Set model spec
+
+```{r}
+lasso_spec <- logistic_reg(penalty = 0.1, mixture = 1, mode = "classification") %>%
+  set_engine("glmnet")
+```
+
+## Preprocessing
+
+```{r}
+brnlw_rec <- recipe(brownlowVotes ~ centreClearances + goals + totalClearances + stoppageClearances + shotsAtGoal + marksInside50 + goalAssists + ratingPoints + inside50S + goalAccuracy + full_name, data = brownlowTrain) %>% 
+  update_role(full_name, new_role = "id")
+```
+
+## Workflow
+
+```{r}
+wf <- workflow() %>% 
+  add_recipe(brnlw_rec) %>% 
+  add_model(lasso_spec)
+```
+
+## Fit model
+
+```{r}
+lasso_fit <- wf %>%
+  fit(data = brownlowTrain)
+
+lasso_fit %>%
+  pull_workflow_fit() %>%
+  tidy()
+```
+
