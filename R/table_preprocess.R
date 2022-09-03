@@ -315,10 +315,11 @@ playerData <- aflData_final %>%
          # metrics
          brownlowVotes,jumperNumber, position,everything(),contains("umpire")) %>% 
   left_join(matchData_final %>% 
-  mutate(finalMargin = homeTeamScoreTotalScore - awayTeamScoreTotalScore) %>% 
-  pivot_longer(cols = -c(matchId:venueState,finalMargin),names_to = c("teamStatus",".value"),names_pattern = "(.{4})Team(.*)") %>% 
-  mutate(finalMargin = if_else(teamStatus == "away",-finalMargin,finalMargin)),
-  by = c("matchId","teamStatus")) %>% 
+              select(-c(season, round, startTime, venueName, game)) %>% 
+              mutate(finalMargin = homeTeamScoreTotalScore - awayTeamScoreTotalScore) %>% 
+              pivot_longer(cols = -c(matchId:venueState,finalMargin),names_to = c("teamStatus",".value"),names_pattern = "(.{4})Team(.*)") %>% 
+              mutate(finalMargin = if_else(teamStatus == "away",-finalMargin,finalMargin)),
+            by = c("matchId","teamStatus")) %>% 
   # One record doesn't have a unique fuzzy join.
   filter(!is.na(brownlowVotes))
 
