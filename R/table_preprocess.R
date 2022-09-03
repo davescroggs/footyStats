@@ -1,9 +1,12 @@
 library(tidyverse)
 library(fitzRoy)
 library(lubridate)
+library(here)
 
 load("data/afl.RData")
 
+
+# Preprocess game data ----------------------------------------------------
 
 # Clean column headings ---------------------------------------------------
 
@@ -36,7 +39,7 @@ aflTables %>%
 
 ## AFL Data ---- 
 
-colRemove <- c('status', 'compSeasonShortName','roundRoundNumber', 'photoUrl', 'playerJumperNumber', 'gamesPlayed', 'superGoals','lastUpdated','ranking')
+colRemove <- c('status', 'compSeasonShortName','roundRoundNumber', 'photoUrl', 'playerJumperNumber', 'gamesPlayed', 'superGoals','lastUpdated','ranking','shotEfficiency','goalEfficiency','interchangeCounts')
 
 aflData_clean <- 
   aflData %>% 
@@ -162,7 +165,7 @@ aflTables_clean %>%
   
 ## Make the rounds and ordered character variable
 
-  roundsVector <- c("roundName", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "Finals Week 1", "Semi Finals", "Preliminary Finals", "Grand Final")
+  roundsVector <- c("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "Finals Week 1", "Semi Finals", "Preliminary Finals", "Grand Final")
   
   
 aflData_clean %>%
@@ -215,6 +218,7 @@ aflData_final <-
            factor(levels = roundsVector,ordered = TRUE),
          game = str_sub(providerId,-2) %>% parse_integer()) %>% 
   select(-c(utcStartTime,roundName)) %>% 
+  rename(matchId = providerId) %>% 
   filter(!is.na(playerId))
 
 ## AFL Tables ----
@@ -238,6 +242,22 @@ aflTables_final <-
          playerId = id) %>% 
   select(-c(date,localStartTime))
 
+
+# Preprocess match data (#15) ---------------------------------------------
+
+colKeep_match <- c("match.name", "match.date", "match.matchId", "match.homeTeamId", "match.awayTeamId", "match.homeTeam.name", "match.awayTeam.name", "match.homeTeam.nickname", "match.awayTeam.nickname", "venue.name", "venue.state", "round.name", "round.year", "homeTeamScore.matchScore.totalScore", "homeTeamScore.matchScore.goals", "homeTeamScore.matchScore.behinds", "awayTeamScore.matchScore.totalScore", "awayTeamScore.matchScore.goals", "awayTeamScore.matchScore.behinds")
+
+matchData_final <- matchData %>%
+  select(any_of(colKeep_match)) %>% 
+  set_names(~str_remove_all(.,"match(Score)?\\.")) %>% 
+  janitor::clean_names("small_camel") %>% 
+  rename(matchup = name,
+         startTime = date) %>% 
+  mutate(season = as.numeric(roundYear),
+         round = str_remove(roundName,"Round ") %>% 
+           factor(levels = roundsVector,ordered = TRUE),
+         game = str_sub(matchId,-2) %>% parse_integer()) %>% 
+  select(matchId,startTime,season,round,game,matchup,venueName,venueState,starts_with("homeTeam"),starts_with("awayTeam"),-c(roundYear,roundName))
 
 
 # Join tables (#7) -------------------------------------------------------------
@@ -291,9 +311,14 @@ playerData <- aflData_final %>%
   # Player info
   select(season, round, startTime, playerId, playerId.alft, givenName, surname, 
          # Game info
-         teamName,homeTeam,awayTeam,providerId,venueName,
+         teamName,homeTeam,awayTeam,matchId,venueName,
          # metrics
          brownlowVotes,jumperNumber, position,everything(),contains("umpire")) %>% 
+  left_join(matchData_final %>% 
+  mutate(finalMargin = homeTeamScoreTotalScore - awayTeamScoreTotalScore) %>% 
+  pivot_longer(cols = -c(matchId:venueState,finalMargin),names_to = c("teamStatus",".value"),names_pattern = "(.{4})Team(.*)") %>% 
+  mutate(finalMargin = if_else(teamStatus == "away",-finalMargin,finalMargin)),
+  by = c("matchId","teamStatus")) %>% 
   # One record doesn't have a unique fuzzy join.
   filter(!is.na(brownlowVotes))
 
