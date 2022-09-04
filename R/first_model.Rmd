@@ -9,13 +9,13 @@ library(here)
 library(tidymodels)
 library(glmnet)
 
-doParallel::registerDoParallel(core = 4)
+#doParallel::registerDoParallel(core = 4)
 
 load(file = here("data/processed_data.RData"))
 
 playerData <- playerData %>% 
-  filter(season < 2022, round <= 23) %>% 
-  mutate(brownlowVotes = if_else(brownlowVotes > 0,"Vote","No_vote"),
+  filter(season < 2022, round <= 23,!is.na(ratingPoints)) %>% 
+  mutate(brownlowVotes = factor(if_else(brownlowVotes > 0,"Vote","No_vote")),
          full_name = paste(givenName,surname))
 ```
 
@@ -31,40 +31,45 @@ brownlowSplit <- initial_split(playerData,prop = 0.75,strata = brownlowVotes)
 brownlowTest <- testing(brownlowSplit)
 brownlowTrain <- training(brownlowSplit)
 
-brownlowCV <- vfold_cv(brownlowTrain,v = 5)
+brownlowCV <- vfold_cv(brownlowTrain,v = 5,strata = brownlowVotes)
 
 ```
 
-## Set model spec
-
-```{r}
-lasso_spec <- logistic_reg(penalty = 0.1, mixture = 1, mode = "classification") %>%
-  set_engine("glmnet")
-```
 
 ## Preprocessing
 
 ```{r}
-brnlw_rec <- recipe(brownlowVotes ~ centreClearances + goals + totalClearances + stoppageClearances + shotsAtGoal + marksInside50 + goalAssists + ratingPoints + inside50S + goalAccuracy + full_name, data = brownlowTrain) %>% 
-  update_role(full_name, new_role = "id")
+brnlw_rec <- recipe(brownlowVotes ~ centreClearances + goals + totalClearances + stoppageClearances + shotsAtGoal + marksInside50 + goalAssists + ratingPoints + inside50S + goalAccuracy, data = brownlowTrain) %>% 
+  step_impute_median(all_predictors())
+  themis::step_smote(brownlowVotes)
 ```
 
-## Workflow
+## Workflow and model spec
 
 ```{r}
-wf <- workflow() %>% 
-  add_recipe(brnlw_rec) %>% 
-  add_model(lasso_spec)
+lin_wf <- workflow() %>%
+  add_recipe(brnlw_rec) %>%
+  add_model(logistic_reg(penalty = tune()) %>%
+              set_engine("glmnet"))
 ```
 
 ## Fit model
 
 ```{r}
-lasso_fit <- wf %>%
-  fit(data = brownlowTrain)
+grid_control <- control_grid(save_pred = TRUE,
+                             save_workflow = TRUE,
+                             extract = extract_model)
 
-lasso_fit %>%
-  pull_workflow_fit() %>%
-  tidy()
+lin_tune <- lin_wf %>%
+  tune_grid(brownlowCV,
+            grid = crossing(penalty = 10 ^ seq(-6, -.5, .1)),
+            metrics = metric_set(accuracy,f_meas,mn_log_loss,precision,recall),
+            control = grid_control)
+
+lin_tune %>% 
+  autoplot()
+
+lin_tune %>% 
+  conf_mat()
 ```
 
