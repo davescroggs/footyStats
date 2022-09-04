@@ -9,13 +9,13 @@ library(here)
 library(tidymodels)
 library(glmnet)
 
-#doParallel::registerDoParallel(core = 4)
+doParallel::registerDoParallel(core = 4)
 
 load(file = here("data/processed_data.RData"))
 
 playerData <- playerData %>% 
   filter(season < 2022, round <= 23,!is.na(ratingPoints)) %>% 
-  mutate(brownlowVotes = factor(if_else(brownlowVotes > 0,"Vote","No_vote")),
+  mutate(brownlowVotes_TF = factor(if_else(brownlowVotes > 0,"Vote","No_vote")),
          full_name = paste(givenName,surname))
 ```
 
@@ -26,12 +26,12 @@ This is a first model to get a feel for how a predictive model might produce res
 ## Data splitting
 
 ```{r}
-brownlowSplit <- initial_split(playerData,prop = 0.75,strata = brownlowVotes)
+brownlowSplit <- initial_split(playerData,prop = 0.75,strata = brownlowVotes_TF)
 
 brownlowTest <- testing(brownlowSplit)
 brownlowTrain <- training(brownlowSplit)
 
-brownlowCV <- vfold_cv(brownlowTrain,v = 5,strata = brownlowVotes)
+brownlowCV <- vfold_cv(brownlowTrain,v = 5,strata = brownlowVotes_TF)
 
 ```
 
@@ -39,9 +39,13 @@ brownlowCV <- vfold_cv(brownlowTrain,v = 5,strata = brownlowVotes)
 ## Preprocessing
 
 ```{r}
-brnlw_rec <- recipe(brownlowVotes ~ centreClearances + goals + totalClearances + stoppageClearances + shotsAtGoal + marksInside50 + goalAssists + ratingPoints + inside50S + goalAccuracy, data = brownlowTrain) %>% 
-  step_impute_median(all_predictors())
-  themis::step_smote(brownlowVotes)
+brnlw_rec <- recipe(brownlowVotes_TF ~ centreClearances + goals + totalClearances +
+                      stoppageClearances + shotsAtGoal + marksInside50 + goalAssists +
+                      ratingPoints + inside50S + goalAccuracy + finalMargin,
+                    data = brownlowTrain) %>% 
+  step_impute_median(all_predictors()) %>% 
+  # Upsample brownlow vote rows
+  themis::step_smote(brownlowVotes_TF)
 ```
 
 ## Workflow and model spec
@@ -49,27 +53,102 @@ brnlw_rec <- recipe(brownlowVotes ~ centreClearances + goals + totalClearances +
 ```{r}
 lin_wf <- workflow() %>%
   add_recipe(brnlw_rec) %>%
-  add_model(logistic_reg(penalty = tune()) %>%
+  # Add place holders for tunable parameters
+  add_model(logistic_reg(penalty = tune(),mixture = tune()) %>%
               set_engine("glmnet"))
 ```
 
 ## Fit model
 
 ```{r}
+
+# Extract model coefficients
+get_glmnet_coefs <- function(x) {
+  x %>% 
+    extract_fit_engine() %>% 
+    tidy(return_zeros = TRUE) %>% 
+    rename(penalty = lambda)
+}
+
 grid_control <- control_grid(save_pred = TRUE,
                              save_workflow = TRUE,
-                             extract = extract_model)
+                             extract = get_glmnet_coefs)
 
 lin_tune <- lin_wf %>%
   tune_grid(brownlowCV,
-            grid = crossing(penalty = 10 ^ seq(-6, -.5, .1)),
-            metrics = metric_set(accuracy,f_meas,mn_log_loss,precision,recall),
+            grid = crossing(penalty = 10 ^ seq(-3, -.5, .1),mixture = c(0.1,0.5,1)),
+            metrics = metric_set(accuracy,f_meas,specificity),
             control = grid_control)
 
 lin_tune %>% 
   autoplot()
+```
 
+```{r}
+final_model <- lin_wf %>% 
+  finalize_workflow(select_best(lin_tune,"specificity")) %>% 
+  last_fit(split = brownlowSplit)
+  
+final_model %>% 
+conf_mat_resampled() %>% 
+  janitor::adorn_totals()
+
+final_model %>%
+  augment() %>% 
+  roc_curve(brownlowVotes_TF,.pred_No_vote) %>% 
+  autoplot()
+```
+```{r}
+glmnet_coefs <- 
 lin_tune %>% 
-  conf_mat()
+  select(id, .extracts) %>% 
+  unnest(.extracts) %>% 
+  select(id, .extracts) %>%
+  unnest(.extracts)
+
+glmnet_coefs %>% 
+  select(id, penalty,  term, estimate) %>% 
+  filter(term != "(Intercept)")
+```
+
+```{r}
+glmnet_coefs %>% 
+  filter(term != "(Intercept)") %>% 
+  ggplot(aes(x = penalty, y = estimate, groups = id)) + 
+  geom_hline(yintercept = 0, lty = 3) +
+  geom_line(alpha = 0.5, lwd = 1.2) + 
+  facet_wrap(~ term) + 
+  scale_x_log10() +
+  scale_color_brewer(palette = "Accent") +
+  labs(y = "coefficient") +
+  theme(legend.position = "top")
+```
+
+```{r}
+model <- 
+  lin_wf %>% 
+  finalize_workflow(select_best(lin_tune,"accuracy")) %>% 
+  fit(playerData)
+
+
+
+model_result_table %>% 
+  select(season, round,game,full_name,brownlowVotes,.pred_Vote,.pred_No_vote)
+
+model_result_table %>% 
+  ggplot(aes(x = .pred_Vote,y = factor(brownlowVotes))) +
+  geom_violin()
+
+playerData %>% 
+  mutate(.pred_Vote = predict(model,playerData,type = "prob")$.pred_Vote) %>% 
+  group_by(season, round,game) %>% 
+  transmute(brownlowVotes,.pred_Vote,
+            game_rank = dense_rank(desc(.pred_Vote)),
+            pred_votes = if_else(game_rank > 3L, 0L,game_rank),
+            abs_error = abs(brownlowVotes - game_rank)) %>% 
+  ungroup() %>% 
+  ggplot(aes(x = game_rank,fill = brownlowVotes)) +
+  geom_histogram(binwidth = 1) +
+  facet_wrap(~brownlowVotes)
 ```
 
