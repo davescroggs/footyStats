@@ -256,8 +256,7 @@ matchData_final <- matchData %>%
   mutate(season = as.numeric(roundYear),
          round = str_remove(roundName,"Round ") %>% 
            factor(levels = roundsVector,ordered = TRUE),
-         game = str_sub(matchId,-2) %>% parse_integer()) %>% 
-  select(matchId,startTime,season,round,game,matchup,venueName,venueState,starts_with("homeTeam"),starts_with("awayTeam"),-c(roundYear,roundName))
+         game = str_sub(matchId,-2) %>% parse_integer())
 
 
 # Join tables (#7) -------------------------------------------------------------
@@ -315,12 +314,12 @@ playerData <- aflData_final %>%
          # metrics
          brownlowVotes,jumperNumber, position,everything(),contains("umpire")) %>% 
   left_join(matchData_final %>% 
-              select(-c(season, round, startTime, venueName, game)) %>% 
+              select(matchId,season,round,game,matchup,venueName,venueState,starts_with("homeTeam"),starts_with("awayTeam"),-c(roundYear,roundName)) %>% 
               mutate(finalMargin = homeTeamScoreTotalScore - awayTeamScoreTotalScore) %>% 
               pivot_longer(cols = -c(matchId:venueState,finalMargin),names_to = c("teamStatus",".value"),names_pattern = "(.{4})Team(.*)") %>% 
               mutate(finalMargin = if_else(teamStatus == "away",-finalMargin,finalMargin)),
-            by = c("matchId","teamStatus")) %>% 
+            by = c("matchId","teamStatus","season", "round","game", "venueName")) %>% 
   # One record doesn't have a unique fuzzy join.
   filter(!is.na(brownlowVotes))
 
-save(playerData, file = here("data/processed_data.RData"))
+save(playerData, matchData_final, file = here("data/processed_data.RData"))
