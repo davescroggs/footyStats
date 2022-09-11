@@ -52,6 +52,24 @@ the standard join before fuzzy joining.
 
 ``` r
 load(file = "data/readmeExamples.RData")
+
+clean_player_name <- function(first,last) paste(first,last,sep = "_") %>% str_replace_all("\\s+","\\_") %>% tolower %>% str_remove_all("\\W")
+
+readmeTeamsJoined <- 
+  aflData_final %>% 
+  # Just look at 2022 data for example
+  filter(season == 2022) %>% 
+  mutate(full_name = clean_player_name(givenName,surname)) %>% 
+  distinct(full_name,teamName,season,playerId) %>% 
+  nest(names = c(full_name,playerId)) %>% 
+  inner_join(
+    aflTables_final %>% 
+      mutate(full_name = clean_player_name(givenName,surname)) %>% 
+      distinct(full_name,teamName,season,playerId) %>% 
+      nest(names = c(full_name,playerId)),
+    by = c("teamName","season"),
+    suffix = c(".afld",".aflt"))
+
 readmeTeamsJoined
 #> # A tibble: 18 × 4
 #>    teamName          season names.afld        names.aflt       
@@ -79,8 +97,8 @@ readmeTeamsJoined
 Each of these sub-groups were fuzzy joined using the default
 Damerau-Levenshtein distance, with a maximum distance of 6, keeping the
 row where each player’s join distance was lowest. Of the 6640 players
-that have played in the last year, only one player could not be joined
-uniquely in this way, Angus Dewar.
+that have played in the last 10 years, only one player could not be
+joined uniquely in this way, Angus Dewar.
 
 ``` r
 readmeTeamsJoined %>% 
