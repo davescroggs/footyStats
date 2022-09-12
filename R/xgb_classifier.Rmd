@@ -1,0 +1,129 @@
+---
+title: "First model"
+output: html_document
+date: "2022-09-09"
+---
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(here)
+library(tidymodels)
+library(xgboost)
+library(vip)
+
+doParallel::registerDoParallel(core = 4)
+
+load(file = here("data/processed_data.RData"))
+
+playerData <- playerData %>% 
+  filter(season < 2022, round <= 23,!is.na(ratingPoints)) %>% 
+  mutate(brownlowVotes_TF = factor(if_else(brownlowVotes > 0,"Vote","No_vote")),
+         full_name = paste(givenName,surname))
+```
+
+## Data splitting
+
+```{r}
+brownlowSplit <- initial_split(playerData,prop = 0.75,strata = brownlowVotes_TF)
+
+brownlowTest <- testing(brownlowSplit)
+brownlowTrain <- training(brownlowSplit)
+
+brownlowCV <- vfold_cv(brownlowTrain,v = 5,strata = brownlowVotes_TF)
+
+```
+
+
+## Preprocessing
+
+```{r}
+brnlw_rec2 <- recipe(brownlowVotes_TF ~ goals + behinds + kicks + handballs + disposals + marks + bounces + tackles + contestedPossessions + uncontestedPossessions + totalPossessions + inside50S + marksInside50 + contestedMarks + hitouts + onePercenters + disposalEfficiency + clangers + freesFor + freesAgainst + dreamTeamPoints + rebound50S + goalAssists + goalAccuracy + ratingPoints + turnovers + intercepts + tacklesInside50 + shotsAtGoal + scoreInvolvements + metresGained + centreClearances + stoppageClearances + totalClearances + effectiveKicks + kickEfficiency + kickToHandballRatio + effectiveDisposals + marksOnLead + interceptMarks + contestedPossessionRate + hitoutsToAdvantage + hitoutWinPercentage + hitoutToAdvantageRate + groundBallGets + f50GroundBallGets + scoreLaunches + pressureActs + defHalfPressureActs + spoils + ruckContests + brownlowVotes_TF + finalMargin + position,
+                    data = brownlowTrain) %>% 
+  step_impute_median(all_numeric_predictors()) %>% 
+  step_mutate(position = if_else(position %in% c("C","RR","R","FF"),as.character(position),"Other") %>% factor) %>% 
+  step_mutate(win = if_else(finalMargin > 0,"Win","Loss") %>% factor) %>% 
+  step_dummy(all_nominal_predictors(),one_hot = TRUE) %>% 
+  # Upsample brownlow vote rows
+  themis::step_smote(brownlowVotes_TF)
+```
+
+
+## Workflow and model spec
+
+```{r}
+xgb_wf <- workflow() %>%
+  add_recipe(brnlw_rec1) %>%
+  # Add place holders for tunable parameters
+  add_model(boost_tree(
+    mode = "classification",
+    learn_rate = 10^-0.5,
+    trees = tune(),
+    mtry = 20,
+    min_n = 10
+  ))
+```
+
+## Tune hyperparameters
+
+### Recipe 1 - Targeted
+
+```{r}
+library(fine)
+# Extract model coefficients
+
+grid_control <- control_grid(save_pred = TRUE,
+                             event_level = "second")
+
+mset <- metric_set(roc_auc,accuracy,specificity,precision)
+
+xgb_grid <- grid_regular(
+    trees(c(50,300)),
+    levels = 3
+  )
+
+xgb_tune <- xgb_wf %>% 
+  tune_grid(brownlowCV,
+            grid = xgb_grid,
+            metrics = mset,
+            control = grid_control)
+
+xgb_tune %>% 
+  autoplot()
+```
+
+```{r}
+xgb_wf <- workflow() %>%
+  add_recipe(brnlw_rec1) %>%
+  # Add place holders for tunable parameters
+  add_model(boost_tree(
+    mode = "classification",
+    learn_rate = 10^-0.5,
+    trees = 300,
+    mtry = 20,
+    min_n = 10
+  ))
+```
+
+```{r}
+xgb_resamp <- xgb_wf %>% 
+  fit_resamples(brownlowCV,
+            metrics = mset,
+            control = grid_control)
+
+xgb_resamp %>% 
+  collect_metrics()
+
+xgb_resamp %>% 
+  conf_mat_resampled()
+```
+
+```{r}
+final_fit <- xgb_wf %>% 
+  last_fit(brownlowSplit)
+
+## use this fitted workflow `extract_workflow(stopping_fit)` to predict on new data
+extract_workflow(final_fit) %>%
+  extract_fit_parsnip() %>%
+  vip(num_features = 15, geom = "point")
+```
+
