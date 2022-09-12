@@ -17,8 +17,6 @@ playerData <- playerData %>%
   filter(season < 2022, round <= 23,!is.na(ratingPoints)) %>% 
   mutate(brownlowVotes_TF = factor(if_else(brownlowVotes > 0,"Vote","No_vote")),
          full_name = paste(givenName,surname))
-playerData %>% 
-  transmute(across(c(goals:ruckContests)),brownlowVotes_TF) %>% colnames() %>% paste(collapse = " + ")
 ```
 
 # First
@@ -73,7 +71,7 @@ lin_wf <- workflow() %>%
               set_engine("glmnet"))
 ```
 
-## Fit model
+## Tune hyperparameters
 
 ### Recipe 1 - Targeted
 
@@ -90,6 +88,8 @@ get_glmnet_coefs <- function(x) {
 grid_control <- control_grid(save_pred = TRUE,
                              event_level = "second")
 
+mset <- metric_set(roc_auc,accuracy,specificity,precision)
+
 lin_tune1 <- workflow() %>%
   add_recipe(brnlw_rec1) %>%
   # Add place holders for tunable parameters
@@ -97,7 +97,7 @@ lin_tune1 <- workflow() %>%
               set_engine("glmnet")) %>%
   tune_grid(brownlowCV,
             grid = crossing(penalty = 10 ^ seq(-3, -.5, .1),mixture = c(0.1,0.5,1)),
-            metrics = metric_set(roc_auc,accuracy,specificity,precision),
+            metrics = mset,
             control = grid_control)
 
 lin_tune1 %>% 
@@ -114,12 +114,49 @@ lin_tune2 <- workflow() %>%
               set_engine("glmnet")) %>%
   tune_grid(brownlowCV,
             grid = crossing(penalty = 10 ^ seq(-3, -.5, .1),mixture = c(0.1,0.5,1)),
-            metrics = metric_set(roc_auc,accuracy,specificity,precision),
+            metrics = mset,
             control = grid_control)
 
 lin_tune2 %>% 
   autoplot()
 ```
+
+## Fit resamples
+
+### Recipe 1
+
+```{r}
+rec1_resampled <- lin_wf %>% 
+  finalize_workflow(select_best(lin_tune1,"precision")) %>% 
+  fit_resamples(resamples = brownlowCV,
+                metrics = mset,
+                control = grid_control)
+
+rec1_resampled %>% 
+  collect_metrics()
+
+rec1_resampled %>% 
+  conf_mat_resampled()
+```
+```{r}
+rec2_resampled <- workflow() %>%
+  add_recipe(brnlw_rec2) %>%
+  # Add place holders for tunable parameters
+  add_model(logistic_reg(penalty = tune(),mixture = tune()) %>%
+              set_engine("glmnet")) %>% 
+  finalize_workflow(select_best(lin_tune2,"precision")) %>% 
+  fit_resamples(resamples = brownlowCV,
+                metrics = mset,
+                control = grid_control)
+
+rec2_resampled %>% 
+  collect_metrics()
+
+rec2_resampled %>% 
+  conf_mat_resampled()
+```
+
+
 ## Recipe 1
 
 ```{r}
