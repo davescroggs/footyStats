@@ -1,0 +1,76 @@
+---
+title: "Brownlow winners"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(scales)
+library(lubridate)
+library(here)
+
+load(file = here("data/processed_data.RData"))
+
+playerData <- playerData %>% 
+  filter(round <= 23,season < 2022)
+```
+
+## Previous Brownlow winners
+
+```{r}
+# Get the ids of the top 8 players in each season
+winnersIds <- playerData %>% 
+  count(season,playerId,wt = brownlowVotes, sort = T) %>% 
+  group_by(season) %>% 
+  slice_max(n, n = 8)
+
+winnersIds %>% 
+  filter(season == 2021)
+  
+```
+
+```{r}
+
+playerData %>% 
+  filter(season > 2016) %>% 
+  group_by(season, teamName,full_name = paste(givenName,surname),playerId) %>% 
+  summarise(across(c(timeOnGroundPercentage:ruckContests,brownlowVotes),sum)) %>% 
+  pivot_longer(cols = c(timeOnGroundPercentage:ruckContests)) %>% 
+  group_by(season,name) %>% 
+  mutate(rank = dense_rank(desc(value)),
+         brownlow_rank = rank(desc(brownlowVotes)) %>% floor) %>% 
+  ungroup() %>% 
+  filter(brownlow_rank < 3) %>% 
+         mutate(name = fct_reorder(name,rank,median, .desc = T)) %>% 
+  ggplot(aes(x = rank,y = name, col = factor(season))) + 
+  geom_point() +
+  scale_x_continuous(breaks = seq(0,100,10),limits = c(0,100)) +
+  facet_wrap(~brownlow_rank,scales = "free_y")
+
+
+```
+
+```{r}
+playerData %>% 
+  filter(season == 2018) %>% 
+  count(full_name = paste(givenName,surname),wt = brownlowVotes,sort =T)
+```
+
+```{r}
+playerData %>% 
+  filter(brownlowVotes > 0,season > 2016) %>% 
+  group_by(season, playerId) %>% 
+  summarise(full_name = paste(givenName,surname) %>% first,
+            n = n(),
+            votes = sum(brownlowVotes)) %>% 
+  arrange(-votes) %>% 
+  slice_max(votes, n = 10) %>%
+  ungroup() %>% 
+  mutate(full_name = tidytext::reorder_within(full_name,n,season)) %>% 
+  ggplot(aes(x = n,y = full_name)) +
+  geom_col() +
+  tidytext::scale_y_reordered() +
+  facet_wrap(~season,scales = "free_y",ncol = 1)
+  
+```
+
