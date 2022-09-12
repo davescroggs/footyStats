@@ -1,0 +1,59 @@
+---
+title: "Multi-level classification"
+output: github_document
+---
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(here)
+library(tidymodels)
+library(xgboost)
+
+#doParallel::registerDoParallel(core = 4)
+
+load(file = here("data/processed_data.RData"))
+
+playerData <- 
+  playerData %>% 
+  filter(season < 2022, round <= 23,!is.na(ratingPoints)) %>% 
+  mutate(full_name = paste(givenName,surname),
+         brownlowVotes = factor(brownlowVotes,levels = 0:3,ordered = TRUE)) %>% 
+    group_by(season,round,game) %>% 
+    mutate(across(c(goals:ruckContests),~dense_rank(desc(.x)),.names = "{.col}_rank")) %>% 
+  ungroup() %>% 
+  select(-c(startTime:venueName,jumperNumber:timeOnGroundPercentage,contestDefOneOnOnes:kickinsPlayon,umpire1:umpire4,matchup,venueState,Id:ScoreBehinds,extendedStats))
+```
+
+## Data splitting
+
+```{r}
+brownlowSplit <- initial_split(playerData,prop = 0.9,strata = brownlowVotes)
+
+brownlowTest <- testing(brownlowSplit)
+brownlowTrain <- training(brownlowSplit)
+
+brownlowCV <- vfold_cv(brownlowTrain,v = 5,strata = brownlowVotes)
+
+```
+
+## Model spec
+
+```{r}
+basic_xgb_spec <- boost_tree() %>% 
+  set_mode("classification")
+```
+
+## Recipe
+
+```{r}
+
+prep_juice <- function(recip) recip %>% prep %>% juice
+
+xgb_basic_recp <- recipe(brownlowVotes ~ ., data = playerData) %>% 
+  step_impute_median(all_numeric_predictors()) %>% 
+  # Upsample brownlow vote rows
+  themis::step_upsample(brownlowVotes)
+
+xgb_basic_recp %>% prep_juice()
+```
+
