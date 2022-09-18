@@ -13,10 +13,17 @@ doParallel::registerDoParallel(core = 4)
 
 load(file = here("data/processed_data.RData"))
 
-playerData <- playerData %>% 
+playerData_2022 <- playerData %>% 
+  filter(season == 2022, round <= 23,!is.na(ratingPoints))
+
+playerData_processed <- playerData %>% 
   filter(season < 2022, round <= 23,!is.na(ratingPoints)) %>% 
   mutate(brownlowVotes_TF = factor(if_else(brownlowVotes > 0,"Vote","No_vote")),
-         full_name = paste(givenName,surname))
+         full_name = paste(givenName,surname)) %>% 
+    group_by(season,round,game) %>% 
+    mutate(across(c(goals:ruckContests),~dense_rank(desc(.x)),.names = "{.col}_rank")) %>% 
+  ungroup() %>% 
+  select(-c(startTime:venueName,jumperNumber,captain:timeOnGroundPercentage,contestDefOneOnOnes:kickinsPlayon,umpire1:umpire4,matchup,venueState,Id:ScoreBehinds,extendedStats))
 ```
 
 # First
@@ -26,7 +33,7 @@ This is a first model to get a feel for how a predictive model might produce res
 ## Data splitting
 
 ```{r}
-brownlowSplit <- initial_split(playerData,prop = 0.75,strata = brownlowVotes_TF)
+brownlowSplit <- initial_split(playerData_processed,prop = 0.75,strata = brownlowVotes_TF)
 
 brownlowTest <- testing(brownlowSplit)
 brownlowTrain <- training(brownlowSplit)
@@ -39,33 +46,49 @@ brownlowCV <- vfold_cv(brownlowTrain,v = 5,strata = brownlowVotes_TF)
 ## Preprocessing
 
 ```{r}
-brnlw_rec1 <- recipe(brownlowVotes_TF ~ centreClearances + goals + totalClearances +
+prep_juice <- function(x) prep(x) %>% juice
+
+
+brnlw_rec_simple <- recipe(brownlowVotes_TF ~ centreClearances + goals + totalClearances +
                       stoppageClearances + shotsAtGoal + marksInside50 + goalAssists +
                       ratingPoints + inside50S + goalAccuracy + finalMargin + position + full_name,
                     data = brownlowTrain) %>% 
   update_role(full_name,new_role = "id") %>% 
   step_impute_median(all_numeric_predictors()) %>% 
-  step_mutate(position = if_else(position %in% c("C","RR","R","FF"),as.character(position),"Other") %>% factor) %>% 
-  step_dummy(position) %>% 
+  step_mutate(position = forcats::fct_other(position, keep = c("C","RR","R","FF"))) %>% 
+  step_mutate(win = if_else(finalMargin > 0,"Win","Loss") %>% factor) %>% 
+  step_rm(finalMargin) %>% 
+  step_dummy(position,win) %>% 
   # Upsample brownlow vote rows
   themis::step_smote(brownlowVotes_TF)
 
-brnlw_rec2 <- recipe(brownlowVotes_TF ~ goals + behinds + kicks + handballs + disposals + marks + bounces + tackles + contestedPossessions + uncontestedPossessions + totalPossessions + inside50S + marksInside50 + contestedMarks + hitouts + onePercenters + disposalEfficiency + clangers + freesFor + freesAgainst + dreamTeamPoints + rebound50S + goalAssists + goalAccuracy + ratingPoints + turnovers + intercepts + tacklesInside50 + shotsAtGoal + scoreInvolvements + metresGained + centreClearances + stoppageClearances + totalClearances + effectiveKicks + kickEfficiency + kickToHandballRatio + effectiveDisposals + marksOnLead + interceptMarks + contestedPossessionRate + hitoutsToAdvantage + hitoutWinPercentage + hitoutToAdvantageRate + groundBallGets + f50GroundBallGets + scoreLaunches + pressureActs + defHalfPressureActs + spoils + ruckContests + brownlowVotes_TF + finalMargin + position,
+brnlw_rec_simple %>% prep_juice
+
+brnlw_rec_extended <- recipe(brownlowVotes_TF ~ goals + behinds + kicks + handballs + disposals + marks + bounces + tackles + contestedPossessions + uncontestedPossessions + totalPossessions + inside50S + marksInside50 + contestedMarks + hitouts + onePercenters + disposalEfficiency + clangers + freesFor + freesAgainst + dreamTeamPoints + rebound50S + goalAssists + goalAccuracy + ratingPoints + turnovers + intercepts + tacklesInside50 + shotsAtGoal + scoreInvolvements + metresGained + centreClearances + stoppageClearances + totalClearances + effectiveKicks + kickEfficiency + effectiveDisposals + marksOnLead + interceptMarks + contestedPossessionRate + hitoutsToAdvantage + hitoutWinPercentage + hitoutToAdvantageRate + groundBallGets + f50GroundBallGets + scoreLaunches + pressureActs + defHalfPressureActs + spoils + ruckContests + finalMargin + position,
                     data = brownlowTrain) %>% 
   step_impute_median(all_numeric_predictors()) %>% 
-  step_mutate(position = if_else(position %in% c("C","RR","R","FF"),as.character(position),"Other") %>% factor) %>% 
+  step_mutate(position = forcats::fct_other(position, keep = c("C","RR","R","FF"))) %>% 
   step_mutate(win = if_else(finalMargin > 0,"Win","Loss") %>% factor) %>% 
+  step_rm(finalMargin) %>% 
   step_dummy(all_nominal_predictors()) %>% 
   # Upsample brownlow vote rows
   themis::step_smote(brownlowVotes_TF)
+
+brnlw_rec_extended %>% prep_juice()
 
 ```
 
 ## Workflow and model spec
 
 ```{r}
-lin_wf <- workflow() %>%
-  add_recipe(brnlw_rec1) %>%
+lin_wf_rec1 <- workflow() %>%
+  add_recipe(brnlw_rec_simple) %>%
+  # Add place holders for tunable parameters
+  add_model(logistic_reg(penalty = tune(),mixture = tune()) %>%
+              set_engine("glmnet"))
+
+lin_wf_rec2 <- workflow() %>%
+  add_recipe(brnlw_rec_extended) %>%
   # Add place holders for tunable parameters
   add_model(logistic_reg(penalty = tune(),mixture = tune()) %>%
               set_engine("glmnet"))
@@ -76,27 +99,13 @@ lin_wf <- workflow() %>%
 ### Recipe 1 - Targeted
 
 ```{r}
-
-# Extract model coefficients
-get_glmnet_coefs <- function(x) {
-  x %>% 
-    extract_fit_engine() %>% 
-    tidy(return_zeros = TRUE) %>% 
-    rename(penalty = lambda)
-}
-
-grid_control <- control_grid(save_pred = TRUE,
-                             event_level = "second")
+grid_control <- control_grid(save_pred = TRUE, event_level = "second")
 
 mset <- metric_set(roc_auc,accuracy,specificity,precision)
 
-lin_tune1 <- workflow() %>%
-  add_recipe(brnlw_rec1) %>%
-  # Add place holders for tunable parameters
-  add_model(logistic_reg(penalty = tune(),mixture = tune()) %>%
-              set_engine("glmnet")) %>%
+lin_tune1 <- lin_wf_rec1 %>%
   tune_grid(brownlowCV,
-            grid = crossing(penalty = 10 ^ seq(-3, -.5, .1),mixture = c(0.1,0.5,1)),
+            grid = crossing(penalty = 10 ^ seq(-3, -.5, .1), mixture = c(0.1,0.5,1)),
             metrics = mset,
             control = grid_control)
 
@@ -107,11 +116,7 @@ lin_tune1 %>%
 ### Recipe 2 - Kitchen sink
 
 ```{r}
-lin_tune2 <- workflow() %>%
-  add_recipe(brnlw_rec2) %>%
-  # Add place holders for tunable parameters
-  add_model(logistic_reg(penalty = tune(),mixture = tune()) %>%
-              set_engine("glmnet")) %>%
+lin_tune2 <- lin_wf_rec2 %>%
   tune_grid(brownlowCV,
             grid = crossing(penalty = 10 ^ seq(-3, -.5, .1),mixture = c(0.1,0.5,1)),
             metrics = mset,
@@ -121,99 +126,51 @@ lin_tune2 %>%
   autoplot()
 ```
 
+### Best fits
+
+```{r}
+lin_wf_rec1_tuned <- lin_wf_rec1 %>% 
+  finalize_workflow(select_best(lin_tune1,"precision"))
+
+lin_wf_rec2_tuned <- lin_wf_rec2 %>% 
+  finalize_workflow(select_best(lin_tune2,"precision"))
+```
+
+
 ## Fit resamples
 
 ### Recipe 1
 
 ```{r}
-rec1_resampled <- lin_wf %>% 
-  finalize_workflow(select_best(lin_tune1,"precision")) %>% 
-  fit_resamples(resamples = brownlowCV,
-                metrics = mset,
-                control = grid_control)
+model_resamples <- 
+  as_workflow_set(rec1 = lin_wf_rec1_tuned,rec2 = lin_wf_rec2_tuned) %>% 
+    workflow_map("fit_resamples",
+                 resamples = brownlowCV,
+                 metrics = mset,
+                 control = grid_control,
+                 verbose = TRUE)
 
-rec1_resampled %>% 
+model_resamples %>% 
   collect_metrics()
-
-rec1_resampled %>% 
-  conf_mat_resampled()
-```
-```{r}
-rec2_resampled <- workflow() %>%
-  add_recipe(brnlw_rec2) %>%
-  # Add place holders for tunable parameters
-  add_model(logistic_reg(penalty = tune(),mixture = tune()) %>%
-              set_engine("glmnet")) %>% 
-  finalize_workflow(select_best(lin_tune2,"precision")) %>% 
-  fit_resamples(resamples = brownlowCV,
-                metrics = mset,
-                control = grid_control)
-
-rec2_resampled %>% 
-  collect_metrics()
-
-rec2_resampled %>% 
-  conf_mat_resampled()
 ```
 
-
-## Recipe 1
+## Best model candidate
 
 ```{r}
-final_model1 <- lin_wf %>% 
-  finalize_workflow(select_best(lin_tune1,"precision")) %>% 
-  last_fit(split = brownlowSplit)
-  
-final_model %>% 
-conf_mat_resampled() %>% 
-  janitor::adorn_totals()
+best_model <- lin_wf_rec2_tuned %>% 
+  fit(data = playerData_processed) 
 
-final_model %>%
-  augment() %>% 
-  roc_curve(brownlowVotes_TF,.pred_No_vote) %>% 
-  autoplot()
+saveRDS(best_model, file = here("models/glm_binary.RDS"))
 ```
+
 ```{r}
-glm_coeffs <- lin_wf %>% 
-  finalize_workflow(select_best(lin_tune2,"roc_auc")) %>% 
-  fit(brownlowTrain) %>% 
+glm_coeffs <- best_model %>% 
   extract_fit_parsnip() %>% 
-  tidy(exponentiate = TRUE)
+  tidy(exponentiate = TRUE) %>% 
+  arrange(-abs(estimate))
 
 glm_coeffs %>% 
-  filter(term != "(Intercept)") %>% 
-  ggplot(aes(x = estimate, y = fct_reorder(term,estimate))) + 
-  geom_point() +
-  geom_vline(xintercept = 0) +
-  labs()
-```
-
-## Recipe 2
-
-```{r}
-final_model2 <- lin_wf %>% 
-  finalize_workflow(select_best(lin_tune2,"precision")) %>% 
-  last_fit(split = brownlowSplit)
-  
-final_model2 %>% 
-conf_mat_resampled() %>% 
-  janitor::adorn_totals()
-
-final_model2 %>%
-  augment() %>% 
-  roc_curve(brownlowVotes_TF,.pred_No_vote) %>% 
-  autoplot()
-```
-
-```{r}
-glm_coeffs2 <- lin_wf %>% 
-  finalize_workflow(select_best(lin_tune2,"roc_auc")) %>% 
-  fit(brownlowTrain) %>% 
-  extract_fit_parsnip() %>% 
-  tidy(exponentiate = TRUE)
-
-glm_coeffs %>% 
-  filter(term != "(Intercept)") %>% 
+  filter(term != "(Intercept)", estimate != 0) %>% 
   ggplot(aes(x = estimate, y = fct_reorder(term,estimate))) + 
   geom_point() +
   geom_vline(xintercept = 0) +
@@ -221,35 +178,60 @@ glm_coeffs %>%
 ```
 
 ```{r}
-model <- 
-  lin_wf %>% 
-  finalize_workflow(select_best(lin_tune,"roc_auc")) %>% 
-  fit(playerData)
-
-
-
-model_result_table %>% 
-  select(season, round,game,full_name,brownlowVotes,.pred_Vote,.pred_No_vote)
-
-model_result_table %>% 
-  ggplot(aes(x = .pred_Vote,y = factor(brownlowVotes))) +
-  geom_violin()
-
-playerData %>% 
-  mutate(.pred_Vote = predict(model,playerData,type = "prob")$.pred_Vote) %>% 
+predicted_votes <- playerData_2022 %>% 
+  mutate(.pred_Vote = predict(best_model,playerData_2022,type = "prob")$.pred_Vote) %>% 
   group_by(season, round,game) %>% 
-  transmute(brownlowVotes,.pred_Vote,
+  transmute(full_name = paste(givenName,surname),
+            teamName,
+            brownlowVotes
+            ,.pred_Vote,
             game_rank = dense_rank(desc(.pred_Vote)),
             pred_votes = if_else(game_rank > 3L, 0L,game_rank),
-            abs_error = abs(brownlowVotes - game_rank)) %>% 
-  ungroup() %>% 
-  ggplot(aes(x = game_rank,fill = brownlowVotes)) +
-  geom_histogram(binwidth = 1) +
-  facet_wrap(~brownlowVotes)
+            abs_error = abs(brownlowVotes - pred_votes)) %>% 
+  ungroup() 
 ```
 
 ```{r}
-map_dfr(c("roc_auc","accuracy","f_meas","specificity"), ~select_best(lin_tune,.x))
+load(here("data","aflPredictedVotes.RData"))
+
+predicted_votes %>% 
+  filter(season == 2022) %>% 
+  count(full_name,teamName,wt = pred_votes,sort = T)
+
+predicted_votes %>% 
+  filter(season == 2022, full_name == "Touk Miller") %>% 
+bind_rows(aflPredictedVotes %>% 
+  filter(Player == "Touk Miller") %>% 
+  pivot_longer(cols = -Player) %>% 
+  transmute(full_name = paste(Player,"AFL"),
+         round = str_extract(name,"\\d+"),
+         pred_votes = value)) %>% 
+  mutate(round = as.integer(round)) %>% 
+  ggplot(aes(round,full_name,fill = factor(pred_votes))) +
+  geom_tile() +
+  geom_text(aes(label = pred_votes)) +
+  scale_fill_viridis_d()
+
+```
+ 
+
+```{r}
+predicted_votes %>% 
+  filter(season == 2022) %>% 
+  transmute(full_name,
+            round,
+            pred_votes,
+            model = "Dave") %>% 
+bind_rows(aflPredictedVotes %>% 
+            select(-`Round TotalVotes`) %>% 
+            pivot_longer(cols = -Player) %>% 
+  transmute(full_name = Player,
+         round = str_extract(name,"\\d+"),
+         pred_votes = value,
+         model = "AFL")) %>% 
+  count(full_name,model,wt = pred_votes) %>% 
+  pivot_wider(names_from = model, values_from = n) %>% 
+  arrange(-AFL)
 ```
 
 
@@ -269,5 +251,9 @@ playerData %>%
 playerData %>% 
   count(brownlowVotes, winner = finalMargin > 0) %>% 
   pivot_wider(names_from = winner,values_from = n)
+```
+
+```{r}
+predict(final_model2,playerData,type = "prob", se.fit = T)
 ```
 
